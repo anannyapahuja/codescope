@@ -22,7 +22,7 @@ CodeScope is a Python CLI tool that analyzes software projects and generates use
 
 Clone the repository:
 
-git clone https://github.com/Spell_boundedd/codescope.git
+git clone https://github.com/anannyapahuja/codescope.git
 
 Install dependencies:
 
