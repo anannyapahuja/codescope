@@ -1,5 +1,7 @@
+import ast
 import json
 from pathlib import Path
+
 from rich.console import Console
 from rich.table import Table
 
@@ -7,7 +9,6 @@ console = Console()
 
 
 def analyze_project(path, export=None):
-
     project_path = Path(path)
 
     total_files = 0
@@ -17,23 +18,66 @@ def analyze_project(path, export=None):
     function_count = 0
     class_count = 0
     import_count = 0
+    if_count = 0
+    for_count = 0
+    while_count = 0
 
     extensions = {}
     largest_files = []
     languages = set()
 
-    ignored_dirs = {"venv", "__pycache__", ".git", "node_modules"}
+    ignored_dirs = {
+    "venv",
+    ".venv",
+    "__pycache__",
+    ".git",
+    ".pytest_cache",
+    "node_modules",
+    }   
+
+    language_map = {
+        ".py": "Python",
+        ".md": "Markdown",
+        ".toml": "TOML",
+        ".js": "JavaScript",
+        ".java": "Java",
+        ".cpp": "C++",
+        ".c": "C",
+        ".h": "C/C++ Header",
+        ".hpp": "C++ Header",
+        ".html": "HTML",
+        ".css": "CSS",
+    }
+
+    text_extensions = {
+        ".py",
+        ".md",
+        ".txt",
+        ".toml",
+        ".json",
+        ".csv",
+        ".js",
+        ".java",
+        ".cpp",
+        ".c",
+        ".h",
+        ".hpp",
+        ".html",
+        ".css",
+    }
 
     for item in project_path.rglob("*"):
 
-        if any(part in ignored_dirs for part in item.parts):
+        if any(
+            part in ignored_dirs or part.endswith(".egg-info")
+            for part in item.parts
+        ):
             continue
 
         if item.is_dir():
             total_dirs += 1
 
         elif item.is_file():
-
             total_files += 1
 
             ext = item.suffix.lower()
@@ -42,56 +86,66 @@ def analyze_project(path, export=None):
                 ext = "[no extension]"
 
             extensions[ext] = extensions.get(ext, 0) + 1
-            if ext == ".py":
-                languages.add("Python")
 
-            elif ext == ".md":
-                languages.add("Markdown")
+            language = language_map.get(ext)
 
-            elif ext == ".toml":
-                languages.add("TOML")
-
-            elif ext == ".js":
-                languages.add("JavaScript")
-
-            elif ext == ".java":
-                languages.add("Java")
+            if language:
+                languages.add(language)
 
             size = item.stat().st_size
             largest_files.append((size, str(item)))
 
-            try:
-
-                with open(item, "r", encoding="utf-8") as f:
-
-                    lines = f.readlines()
+            if ext in text_extensions:
+                try:
+                    with open(item, "r", encoding="utf-8") as f:
+                        lines = f.readlines()
 
                     total_lines += len(lines)
+
                     if ext == ".py":
+                        try:
+                            tree = ast.parse("".join(lines))
 
-                        for line in lines:
+                            for node in ast.walk(tree):
 
-                            stripped = line.strip()
+                                if isinstance(
+                                    node,
+                                    (ast.FunctionDef, ast.AsyncFunctionDef),
+                                ):
+                                    function_count += 1
 
-                            if stripped.startswith("def "):
-                                function_count += 1
+                                elif isinstance(node, ast.ClassDef):
+                                    class_count += 1
 
-                            elif stripped.startswith("class "):
-                                class_count += 1
+                                elif isinstance(
+                                    node,
+                                    (ast.Import, ast.ImportFrom),
+                                ):
+                                    import_count += 1
 
-                            elif stripped.startswith("import ") or stripped.startswith(
-                                "from "
-                            ):
-                                import_count += 1
+                                elif isinstance(node, ast.If):
+                                    if_count += 1
+
+                                elif isinstance(node, ast.For):
+                                    for_count += 1
+
+                                elif isinstance(node, ast.While):
+                                    while_count += 1
+
+                        except SyntaxError as error:
+                            console.print(
+                                f"[bold red]Could not parse Python file "
+                                f"{item}: {error}[/bold red]"
+                            )
 
                     for line in lines:
-
                         if "TODO" in line or "FIXME" in line:
-
                             todo_count += 1
 
-            except:
-                pass
+                except Exception as error:
+                    console.print(
+                        f"[bold red]Could not read {item}: {error}[/bold red]"
+                    )
 
     largest_files.sort(reverse=True)
 
@@ -102,19 +156,23 @@ def analyze_project(path, export=None):
         "todo_count": todo_count,
         "languages": list(languages),
         "python_stats": {
-            "functions": function_count,
-            "classes": class_count,
-            "imports": import_count,
+        "functions": function_count,
+        "classes": class_count,
+        "imports": import_count,
+        "if_statements": if_count,
+        "for_loops": for_count,
+        "while_loops": while_count,
         },
         "extensions": extensions,
     }
 
     if export:
-
         with open(export, "w") as f:
             json.dump(results, f, indent=4)
 
-        console.print(f"[bold green]Exported report to {export}[/bold green]")
+        console.print(
+            f"[bold green]Exported report to {export}[/bold green]"
+        )
 
     table = Table(title="CodeScope Analysis")
 
@@ -147,13 +205,18 @@ def analyze_project(path, export=None):
         largest_table.add_row(str(size), file)
 
     console.print(largest_table)
+
     console.print("\n[bold cyan]Languages Detected[/bold cyan]")
 
     for lang in sorted(languages):
         console.print(f"- {lang}")
+
     console.print("\n[bold cyan]Python Stats[/bold cyan]")
 
     console.print(f"- Functions: {function_count}")
     console.print(f"- Classes: {class_count}")
     console.print(f"- Imports: {import_count}")
+    console.print(f"- If Statements: {if_count}")
+    console.print(f"- For Loops: {for_count}")
+    console.print(f"- While Loops: {while_count}")
     return results
